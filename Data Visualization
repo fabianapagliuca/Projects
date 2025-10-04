@@ -1,0 +1,17 @@
+# Data Visualization Project
+
+Descrizione:
+This corpus contains two different datasets: one comprises 1,123 Italian sentences and the other one made of 1,200 English sentences, each assessed by human evaluators for their complexity. The evaluations were gathered through a crowdsourcing task involving 20 native speakers for each language. Participants were asked to rate the perceived difficulty of a given sentence on a scale ranging from 1 (indicating 'very easy') to 7 (indicating 'very difficult').
+
+The sentences used in the task were sourced from two distinct treebanks that underwent manual review: the newspaper section of the Italian Universal Dependency Treebank (IUDT) for the Italian experiment, and the automatically converted Wall Street Journal section of the Penn Treebank for the English experiment.
+
+Goal: the aim of this project is to construct a model that can predict the complexity judgement for each sentence through different techniques of text mining and data visualization.
+
+In this notebook, we will analyze the English dataset.
+
+📂 **Notebook Colab / Google Drive:**  
+[Apri il progetto su Google Drive](https://drive.google.com/file/d/1aFrMyUiQt7F4xEJaAALfGck41VQBOYwH/view?usp=share_link)
+
+---
+
+Autrice: Fabiana Pagliuca
