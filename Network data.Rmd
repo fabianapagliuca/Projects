@@ -1,6 +1,6 @@
 ---
 title: "Global Network of Flight Travel"
-author: "Fabiana Pagliuca 5212402, Francesca Romanelli 5212122"
+author: "Fabiana Pagliuca"
 date: "2024-06-06"
 output:
   html_document:
