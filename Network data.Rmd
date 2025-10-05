@@ -1,0 +1,1044 @@
+---
+title: "Global Network of Flight Travel"
+author: "Fabiana Pagliuca 5212402, Francesca Romanelli 5212122"
+date: "2024-06-06"
+output:
+  html_document:
+    df_print: paged
+editor_options: 
+  markdown: 
+    wrap: sentence
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Libraries
+
+```{r message=FALSE, warning=FALSE}
+library(readr)
+library(igraph)
+library(tidyverse)
+library(visNetwork)
+library(igraphdata)
+library(plotly)
+library(htmlwidgets)
+library(countrycode)
+library(kableExtra)
+library(knitr)
+library(ggplot2)
+library(ggraph)
+library(tidygraph)
+library(networkD3)
+library(shiny)
+library(shinydashboard)
+library(dplyr)
+library(igraph)
+```
+
+# Data
+
+This project aims to analyze the complex global network of air travel, considering both countries and individual departure cities.
+We will focus on various properties and metrics of the network, such as degree and betweenness centrality, subgraphs analysis and network sampling.
+
+The dataset used for this analysis is sourced from [https://github.com/gsmanu007/Complex-network-analysis-of-Airport-network-data/blob/master/globalflightsnetwork.zip](URL).
+
+It contains the following columns:
+
+\- **departure_city**: The name of the city from which the flight departs.
+
+\- **long_departure**: The longitude coordinate of the departure city.
+
+\- **lat_departure:** The latitude coordinate of the departure city.
+
+\- **departure_country**: The country to which the departure city belongs.
+
+\- **arrival_city**: The name of the city to which the flight arrives.
+
+\- **long_arrival**: The longitude coordinate of the arrival city.
+
+\- **lat_arrival**: The latitude coordinate of the arrival city.
+
+\- **arrival_country**: The country to which the arrival city belongs.
+
+\- **number of routes**: The number of flight routes between the departure and arrival cities.
+
+\- **distance**: The distance between the departure and arrival cities.
+
+Together, these attributes provide a comprehensive overview of global flight connections, facilitating analyses and visualizations to gain insights into the dynamics of international air travel.
+
+```{r}
+
+data <- read.csv("/Users/francescaromanelli/Desktop/UNICATT/Materie/Anno_II/trimestre3/NETWORK/Project/citiesTocities.csv", sep= ";")
+
+#data <- read.csv("/Users/fabiana/Downloads/citiesToCities-3.csv", sep = ";")
+data = data[,-11]
+
+colnames(data) <- c(
+  "departure_city", 
+  "long_departure", 
+  "lat_departure", 
+  "departure_country", 
+  "arrival_city", 
+  "long_arrival", 
+  "lat_arrival", 
+  "arrival_country", 
+  "number_of_routes", 
+  "distance"
+)
+
+kable(head(data))
+```
+
+Check that each variable have the right format:
+
+```{r}
+str(data)
+```
+
+## Dimension of the dataset
+
+```{r}
+dim_data <- dim(data)
+num_rows <- dim_data[1]
+num_cols <- dim_data[2]
+
+cat("The Dataframe has", num_rows, "row and", num_cols, "columns.\n")
+```
+
+## Check Duplicates and NAs
+
+```{r}
+any(duplicated(data))
+print(colSums(is.na(data)))
+```
+
+# Creation of Nodes and Edges dataframe
+
+Let's create the dataframes for **nodes** and **edges** starting from the departure and arrival city data.
+Each city is assigned a unique identifier.
+Edges are created considering the number of routes.
+
+## Nodes
+
+Let's consider the cities, their latitude, longitude, and a unique identifier code (ID) created by us.
+
+```{r}
+departure_nodes <- data[, c("departure_city", "long_departure", "lat_departure")]
+colnames(departure_nodes) <- c("city", "longitude", "latitude")
+
+arrival_nodes <- data[, c("arrival_city", "long_arrival", "lat_arrival")]
+colnames(arrival_nodes) <- c("city", "longitude", "latitude")
+
+nodes <- rbind(departure_nodes, arrival_nodes)
+nodes <- unique(nodes)
+
+nodes$city_id<- seq(0, nrow(nodes) - 1)
+
+kable(head(nodes))
+```
+
+## Edges
+
+```{r}
+data_edge <- data[, c("departure_city", "arrival_city", "number_of_routes")]
+colnames(data_edge) <- c("departure", "arrival", "routes")
+
+data_edge <- data_edge[order(data_edge$departure, data_edge$arrival), ]
+
+edges <- unique(data_edge[, c("departure","arrival", "routes")])
+
+edges$dep_id <- match(edges$departure, nodes$city) - 1 
+
+kable(head(edges))
+```
+
+
+
+# Graph Transformation
+
+Let's construct a directed weighted graph and use the variable **routes** as the weight for the edges of the graph, which represents the number of flights departing from one city to that destination.
+
+```{r}
+g_w <- graph_from_data_frame(edges, directed = TRUE)
+E(g_w)$weight <- edges$routes
+```
+
+```{r}
+summary(E(g_w)$weight)
+
+hist(E(g_w)$weight, breaks = 25,
+     xlab = "Weights", main = "Edges' Weight Distribution", 
+     col = "darkblue", border = 'white',
+     xlim = c(1, 18), xaxt = "n")
+axis(side = 1, at = seq(1, 18, by = 1), cex.axis = 0.8)
+```
+
+We observe that the majority of the edges in the graph have a weight between 1 and 2.
+Considering the summary as well, we can assert that within this range lies $75$% of the edges, while the remaining $25$% are distributed from 2 onwards.
+
+
+# Plots of graph
+
+## Graph representation
+
+Then, we represent the graph $g_w$:
+```{r}
+plot(g_w, 
+     vertex.label.cex = 0.5,   
+     edge.arrow.size = 0.2)
+```
+
+
+
+## World map representation
+
+The following map provides a global overview of the distribution of air transport.
+Each point on the map represents an airport located in a city.
+
+```{r, warning = FALSE}
+geo <- list(
+  scope = "world",
+  projection = list(type = "orthographic"),
+  showland = TRUE,
+  resolution = 100,
+  landcolor = toRGB("gray90"),
+  countrycolor = toRGB("gray80"),
+  oceancolor = toRGB("lightsteelblue2"),
+  showocean = TRUE
+)
+
+plot_geo(locationmode = "ISO-3") %>%
+  add_markers(data = nodes,
+              x = ~longitude,
+              y = ~latitude,
+              text = ~paste('city: ', city),
+              alpha = .5, color = "red") %>%
+  layout(
+    title = "Global Airports",
+    geo = geo,
+    showlegend = FALSE
+  )
+```
+
+The following code generates a world map that illustrates the global network of air connections, highlighting not only the cities (nodes) but also the routes that connect them (edges).
+The red lines, representing the air routes, show a dense network of connections, particularly concentrated between **North America**, **Europe**, and **Asia**.
+
+```{r warning=FALSE}
+# Merge edge data with node data based on the departure city ID
+merged_data <- merge(edges, nodes, by.x = "dep_id", by.y = "city_id", all.x = TRUE)
+
+world_map_data <- map_data("world")
+
+world_map <- ggplot() + 
+  geom_polygon(data = world_map_data, aes(x = long, y = lat, group = group), 
+               fill = "white", color = "black", size = 0.2) +
+  geom_point(data = merged_data, aes(x = longitude, y = latitude, color = routes), 
+             size = 0.5, color = "royalblue4") +
+  geom_segment(data = data, aes(x = long_departure, y = lat_departure, xend = long_arrival, 
+                                yend = lat_arrival), color = "red",size = 0.1, alpha = 0.2) +  
+  theme_minimal()
+
+print(world_map)
+```
+
+# Analysis
+
+We now proceed with our analysis looking at *Degree*, *Transitivity*, *PageRank*, *Strength*, *Betweenness* and *Degree distribution*.
+Additionally, we'll explore the top ten nodes for each of these metrics.
+
+## Degree
+
+```{r}
+d <- degree(g_w)
+hist(degree(g_w), ylim = c(0, 200), 
+     xlab= "Degree",main = "Histogram of degree", col = "lightblue1")
+```
+
+### Top 10 nodes
+
+```{r}
+top_nodes_d <- sort(d, decreasing = TRUE)[1:10]
+top_nodes_d
+```
+
+```{r}
+par(cex.axis = 0.6)
+bar_colors <- rep("lightblue1", length(top_nodes_d))
+bar_colors[1] <- "violetred4"
+barplot(top_nodes_d ,main="Top 10 nodes - Degree", horiz = FALSE, names.arg = NULL, col = bar_colors, las = 2)
+```
+
+The degree of a node in a graph represents the number of edges connected to that node.
+
+In this context, the highest degree of **621** suggests that there is at least one node (**London**) in the graph that is highly connected to other nodes, while the majority of nodes have a lower degree, ranging from **0** to **100**.
+
+### Out-degree and In-degree
+
+```{r}
+# Out-degree
+out_degree <- degree(g_w, mode = "out")
+summary(out_degree)
+
+# In-degree
+in_degree <- degree(g_w, mode = "in")
+summary(in_degree)
+```
+
+Let's observe the **out-degree**, which represents the number of outgoing edges from each node, and the **in-degree**, which represents the number of incoming edges to each node.
+Observing the results of the two summaries, we can notice that they are distributed in exactly the same way.
+This may indicate that, even though our dataset only considers one-way flights, indirectly we also have the "return flight" implicitly considered as another one-way trip.
+
+## Pagerank
+
+```{r}
+pagerank <- page_rank(g_w)$vector
+hist(pagerank, ylim = c(0, 200), 
+     xlab= "Pagerank",main = "Histogram of Pagerank", col = "lightblue1")
+```
+
+### Top 10 nodes 
+
+```{r}
+top_nodes_pr <- sort(pagerank, decreasing = TRUE)[1:10]
+print(top_nodes_pr)
+```
+
+```{r}
+par(cex.axis = 0.8)
+bar_colors <- rep("lightblue1", length(top_nodes_pr))
+bar_colors[1] <- "violetred4"
+barplot(top_nodes_pr ,main="Top 10 nodes - Pagerank", horiz = FALSE, names.arg = NULL, col = bar_colors, las = 2)
+```
+
+**PageRank** is used to assess the importance of nodes within a graph, considering both the number of connections and the quality of those connections.
+A node with a high *pagerank* value is considered more influential or central within the network.
+**London** has the highest *pagerank*, indicating it is the most influential city in the network.
+This likely reflects its status as a major global hub with numerous connections to other important cities.
+
+## Strength
+
+```{r}
+s <- strength(g_w)
+hist(s, ylim = c(0,200), main= "Histogram of Strength",
+     xlab= "Strength", col = "lightblue1")
+```
+
+### Top 10 nodes
+
+```{r}
+top_nodes_s <- sort(s, decreasing = TRUE)[1:10]
+print(top_nodes_s)
+```
+
+```{r}
+par(cex.axis = 0.8)
+bar_colors <- rep("lightblue1", length(top_nodes_s ))
+bar_colors[1] <- "violetred4"
+barplot(top_nodes_s ,main="Top 10 nodes - Strength", horiz = FALSE, names.arg = NULL, col = bar_colors, las = 2)
+```
+
+Now, we calculate the **strength** of each vertex in the graph.
+More specifically, the strength of a vertex in a graph is a measure of the total weight of the edges connected to that vertex.
+
+We can notice that London has the highest strength (1984), suggesting that it is the node with the strongest connections overall.
+This may indicate that London is probably connected to many other nodes with strong connections.
+
+A **higher strength** and a **greater degree** for *London* indicate that it is a key node in the network, with numerous and significant connections that make it an important hub in the global flight network.
+
+## Betweenness
+
+```{r}
+b <- betweenness(g_w)
+hist(b, ylim = c(0,200), main= "Histogram of Betweenness",
+     xlab= "Betweenness", col = "lightblue1")
+```
+
+### Top 10 nodes
+
+```{r}
+top_nodes_bw <- sort(b, decreasing = TRUE)[1:10]
+print(top_nodes_bw)
+```
+
+
+```{r}
+par(cex.axis = 0.8)
+bar_colors <- rep("lightblue1", length(top_nodes_bw ))
+bar_colors[1] <- "violetred4"
+barplot(top_nodes_bw ,main="Top 10 nodes - Betweenness", horiz = FALSE, names.arg = NULL, col = bar_colors, las = 2)
+```
+
+
+The values of **betweenness centrality** indicate how often a city acts as a bridge along the shortest path between other cities in the network of air routes.
+
+While *Anchorage* may not be among the most densely connected nodes in the network, the air routes passing through the city are crucial for global connectivity. Its strategic location and role as a hub for transoceanic flights significantly contribute to its high betweenness in the global flight network.
+
+Similarly, **Dubai** is often used as a stopover for long-haul flights between different regions of the world, such as flights between Europe and Asia, or between Europe and Australia.
+This increase in air traffic contributes to Dubai's betweenness, as many air routes pass through the city.
+
+
+## Degree and Strength
+
+```{r}
+
+plot(d, s, ylab="Strength", xlab= "Degree", main= "Degree vs Strength", pch=16, col="darkblue")
+
+```
+
+The plot shows a positive correlation between the degrees and the strength. In fact we can clearly notice that when the degrees increase, the strength increases too.
+
+
+## Transitivity
+
+```{r}
+t <- transitivity(g_w)
+t
+```
+
+**Transitivity** measures the likelihood that two nodes, both connected to a common node, are also connected to each other.
+It is calculated as the ratio of the number of triangles (sets of three nodes all connected to each other) to the number of open triads (sets of three nodes where at least one connection is missing).
+
+A transitivity value of $0.2389114$ indicates a moderate level of *clustering* in the graph, suggesting there is a fair tendency for the formation of connected groups of nodes.
+
+
+
+## Degree distribution
+
+```{r}
+degree_dist <- function(graph) {
+  fd <- table(degree(graph))
+  d <- as.numeric(names(fd)) + 1 #degree + 1
+  list(d = d, fd = fd)
+}
+dd <- degree_dist(g_w)
+
+# code for the limits of the graph
+xlim_max <- max(log(dd$d)) + 1
+ylim_max <- max(log(dd$fd)) + 1
+
+with(dd, plot(log(d), log(fd), main="Degree Distribution", pch=21, col="darkslateblue", bg="white",
+              xlim = c(0, xlim_max), ylim = c(0, ylim_max)))
+
+```
+
+The degree distribution graph, with the **x-axis** representing the **log-degree** and the **y-axis** representing the **log-frequency of each degree**, provides valuable insights into the structure of the global air network.
+The plot suggests that a small number of cities, acting as major hubs, have a large number of connections, while the majority of cities have comparatively fewer connections.
+This highlights the presence of highly connected nodes, which are crucial for maintaining the overall connectivity and efficiency of the network.
+
+# Models
+
+Now, we model the network using two main models: **Linear Model** and **Generalized Linear Model (Poisson)**.
+
+## Linear Model
+
+```{r}
+mod0 <- lm(log(fd) ~ log(d), data=dd)
+cat('model with the fd transformed:', '\n')
+summary(mod0)
+```
+
+The linear regression model examines the relationship between the log of degree distribution, **log(fd)**, and the log of degrees, **log(d)**.
+
+
+- The **intercept** is statistically significant. It indicates the expected **log(fd)** when **log(d)** is zero, so when **d = 1** the $log(1)=0$. This means that the expected  **log(fd)**  is approximately $5.92377$ when the degree is $1$.
+
+
+- The **coefficient** is also statistically significant and represents the expected change in **log(fd)** for a one-unit change in **log(d)**. Since the coefficient is negative, it indicates that as the degree increases, the frequency of degrees decreases.
+
+
+- **R-squared**: The value of $0.7332$ means that the model explains $73.32$% of the variance in log(fd), which is quite high.
+
+
+
+## Generalized Linear Model
+
+```{r}
+mod1 <- glm(fd ~ log(d), family = poisson, data=dd)
+cat('model without the fd transformed:', '\n')
+summary(mod1)
+```
+
+
+In this model we have applied the Poisson regression model examines the relationship between the log of degree distribution, **log(fd)**, and the log of degrees, **log(d)**.
+
+
+- The **intercept** is statistically significant. It indicates the expected **log(fd)** when **log(d)** is zero. This means that the expected  **log(fd)** is approximately $7.27932$ when the degree is $1$.
+
+
+- The **coefficient** is also statistically significant and represents the expected change in **log(fd)** for a one-unit change in **log(d)**. Since the coefficient is negative, it indicates that as the degree increases, the frequency of degrees decreases.
+
+
+```{r}
+with(dd, plot(log(d),log(fd),main="Degree Distribution", xlab="Degree", ylab="Frequency of each Degree", pch=16, col=hcl.colors(length(b), rev = F, palette= 'blues')))
+abline(a=mod0$coef[1],b=mod0$coef[2], col='red', lwd=1)
+abline(a=mod1$coef[1],b=mod1$coef[2], col='blue', lwd=1)
+legend("topright", legend = c("Linear Model", "Poisson"), col = c("red", "blue"), lwd = 1)
+
+```
+
+
+The graph shows the degree distribution along with the lines estimated from the linear and Poisson models. Observing the Poisson distribution line, we see that it fits very well for lower degree values but then drops quite rapidly, losing some fit at higher degree levels.
+
+On the other hand, the linear distribution line performs worse for lower values but seems to better represent the data as the degree values increase.
+
+In conclusion, the Poisson distribution fits the initial data better, the one with lower degrees, while the linear model provides a better fit for higher degrees.
+
+
+# Clustering
+
+We now perform a *Clustering Analysis* using **edge betweenness clustering algorithm**, which is suitable for our directed graph. In order to do this, we decided to consider only countries instead of cities to try to reduce the number of nodes because of the large dimension of our dataset.
+
+```{r}
+data_edge_country <- data[, c("departure_country", "arrival_country", "number_of_routes")]
+
+colnames(data_edge_country) <- c("departure_country", "arrival_country", "routes")
+
+
+data_edge_country <- data_edge_country[order(data_edge_country$departure, data_edge_country$arrival), ]
+
+edges_country <- unique(data_edge_country[, c("departure_country", "arrival_country", "routes")])
+
+edges_country
+```
+
+```{r}
+g_cluster <- graph_from_data_frame(edges_country, directed = TRUE)
+E(g_cluster)$weight <- edges_country$routes
+```
+
+```{r warning=FALSE}
+country_clusters <- cluster_edge_betweenness(g_cluster)
+
+plot(country_clusters, g_cluster, vertex.label.cex = 0.5, vertex.alpha = 0.2)
+```
+
+```{r}
+l_country_clusters <- length(country_clusters)
+cat('The number of clusters by Edge Betweenness Algorithm are:',l_country_clusters,'\n')
+```
+
+The number of clusters obtained using the Edge Betweenness Algorithm is **84**.
+This suggests that the graph is highly interconnected and complex, with numerous connections between its nodes.
+Given the high number of clusters, interpreting and identifying patterns becomes challenging.
+Therefore, we opt to partition the graph into smaller subgraphs for a more detailed analysis.
+
+```{r}
+hist(membership(country_clusters), breaks = 30, xlim=c(0,90), xlab= "Clusters", main= "Cluster Memebership distribution", col=hcl.colors(length(b), rev = F, palette= 'blues'), border="black")
+```
+
+Indeed, most of the clusters are very small.
+Therefore, as mentioned earlier, we will not obtain a detailed and accurate analysis.
+
+# Subgraphs
+
+Now, we construct 5 subgraphs corresponding to the 5 continents: **Africa, Europe, Americas, Asia, and Oceania**.
+We will analyze the cities present in each continent using various metrics and importance measures to better understand their characteristics and roles within the network.
+
+```{r warning=FALSE}
+new_data <- data
+new_data$departure_continent <- countrycode(sourcevar = new_data$departure_country,
+                                origin = "country.name",
+                                destination = "continent")
+
+new_data$arrival_continent <- countrycode(sourcevar = new_data$arrival_country,
+                                origin = "country.name",
+                                destination = "continent")
+
+new_data$departure_continent[new_data$departure_country == "Micronesia"] <- "Oceania"
+new_data$arrival_continent[new_data$arrival_country == "Micronesia"] <- "Oceania"
+new_data$departure_continent[new_data$departure_country == "Virgin Islands"] <- "Americas"
+new_data$arrival_continent[new_data$arrival_country == "Virgin Islands"] <- "Americas"
+```
+
+```{r}
+continent_summary <- new_data %>%
+  group_by(departure_continent) %>%
+  summarise(total_routes_departure = sum(number_of_routes)) %>%
+  ungroup() %>%
+  arrange(desc(total_routes_departure)) 
+
+print(continent_summary)
+```
+
+```{r}
+sub_edge <- new_data[, c("departure_city", "departure_continent","arrival_city", "arrival_continent", "number_of_routes")]
+colnames(sub_edge) <- c("departure_city", "departure_continent","arrival_city", "arrival_continent", "routes")
+
+sub_edge
+```
+
+Here, we have a graphical representation of the 5 subgraphs.
+
+### Africa
+
+```{r}
+africa_flights <- sub_edge %>%
+  filter(departure_continent == "Africa" & arrival_continent == "Africa")
+
+unique_cities <- africa_flights %>%
+  select(departure_city, arrival_city) %>%
+  distinct() %>%
+  unlist()
+
+africa_nodes <- data.frame(id = unique_cities)
+
+africa_edges <- graph_from_data_frame(africa_flights[, c("departure_city", "arrival_city")], directed = TRUE)
+
+plot(africa_edges, 
+     main = "Subgraph for Africa", 
+     vertex.label.cex = 0.5, 
+     edge.arrow.size = 0.5)
+
+```
+
+### Americas
+
+```{r}
+america_flights <- sub_edge %>%
+  filter(departure_continent == "Americas" & arrival_continent == "Americas")
+
+unique_cities <- america_flights %>%
+  select(departure_city, arrival_city) %>%
+  distinct() %>%
+  unlist()
+
+america_nodes <- data.frame(id = unique_cities)
+
+america_edges <- graph_from_data_frame(america_flights[, c("departure_city", "arrival_city")], directed = TRUE)
+
+plot(america_edges, 
+     main = "Subgraph for America", 
+     vertex.label.cex = 0.5, 
+     edge.arrow.size = 0.5)
+```
+
+### Asia
+
+```{r}
+asia_flights <- sub_edge %>%
+  filter(departure_continent == "Asia" & arrival_continent == "Asia")
+
+unique_cities <- asia_flights %>%
+  select(departure_city, arrival_city) %>%
+  distinct() %>%
+  unlist()
+
+asia_nodes <- data.frame(id = unique_cities)
+
+asia_edges <- graph_from_data_frame(asia_flights[, c("departure_city", "arrival_city")], directed = TRUE)
+
+plot(asia_edges, 
+     main = "Subgraph for Asia", 
+     vertex.label.cex = 0.5, 
+     edge.arrow.size = 0.5)
+```
+
+### Europe
+
+```{r}
+europe_flights <- sub_edge %>%
+  filter(departure_continent == "Europe" & arrival_continent == "Europe")
+
+unique_cities <- europe_flights %>%
+  select(departure_city, arrival_city) %>%
+  distinct() %>%
+  unlist()
+
+europe_nodes <- data.frame(id = unique_cities)
+
+
+europe_edges <- graph_from_data_frame(europe_flights[, c("departure_city", "arrival_city")], directed = TRUE)
+
+plot(europe_edges, 
+     main = "Subgraph for Europe", 
+     vertex.label.cex = 0.5, 
+     edge.arrow.size = 0.5)
+
+```
+
+### Oceania
+
+```{r}
+oceania_flights <- sub_edge %>%
+  filter(departure_continent == "Oceania" & arrival_continent == "Oceania")
+
+unique_cities <- oceania_flights %>%
+  select(departure_city, arrival_city) %>%
+  distinct() %>%
+  unlist()
+
+oceania_nodes <- data.frame(id = unique_cities)
+
+oceania_edges <- graph_from_data_frame(oceania_flights[, c("departure_city", "arrival_city")], directed = TRUE)
+
+plot(oceania_edges, 
+     main = "Subgraph for Oceania", 
+     vertex.label.cex = 0.5, 
+     edge.arrow.size = 0.5)
+```
+
+## Analysis
+
+#### Transitivity
+
+```{r}
+
+t_Af <- transitivity(africa_edges)
+t_Oc <- transitivity(oceania_edges)
+t_Am <- transitivity(america_edges)
+t_Eu <- transitivity(europe_edges)
+t_As <- transitivity(asia_edges)
+
+trans_tab <- data.frame(
+  Continent = c("Africa", "Oceania", "Americas", "Europe", "Asia"),
+  Transitivity = c(t_Af, t_Oc, t_Am, t_Eu, t_As)
+)
+
+trans_tab <- trans_tab %>%
+  arrange(desc(Transitivity))
+
+kable(trans_tab, caption = "Transitivity for Each Continent", align = "c", format = "html") %>%
+  kable_styling(full_width = FALSE)
+```
+
+-   **Europe and Asia**: Exhibit the highest levels of transitivity, indicating densely connected networks of cities.
+    This suggests an higher propensity for clustering among cities.
+
+-   **Americas**: Show an intermediate level of transitivity, suggesting a moderate level of clustering among cities.
+
+-   **Africa and Oceania**: Have similar levels of transitivity, the lowest among the continents analyzed.
+    This indicates that cities in these continents have fewer connections among their neighbors compared to other continents.
+
+#### Degree of subgraph
+
+```{r}
+d_Af <- degree(africa_edges)
+d_Oc <- degree(oceania_edges)
+d_Am <- degree(america_edges)
+d_Eu <- degree(europe_edges)
+d_As <- degree(asia_edges)
+
+par(mfrow = c(2, 3))
+
+
+hist(d_Af, breaks = 15, xlab = "Degree", main = "Degree of Africa", col = hcl.colors(length(d_Af), rev = TRUE, palette = 'Blues'), border = "black")
+hist(d_Oc, breaks = 15, xlab = "Degree", main = "Degree of Oceania", col = hcl.colors(length(d_Oc), rev = TRUE, palette = 'Blues'), border = "black")
+hist(d_Am, breaks = 15, xlab = "Degree", main = "Degree of Americas", col = hcl.colors(length(d_Am), rev = TRUE, palette = 'Blues'), border = "black")
+hist(d_Eu, breaks = 15, xlab = "Degree", main = "Degree of Europe", col = hcl.colors(length(d_Eu), rev = TRUE, palette = 'Blues'), border = "black")
+hist(d_As, breaks = 15, xlab = "Degree", main = "Degree of Asia", col = hcl.colors(length(d_As), rev = TRUE, palette = 'Blues'), border = "black")
+
+```
+
+#### Strength of subgraph
+
+```{r}
+s_Af <- strength(africa_edges)
+s_Oc <- strength(oceania_edges)
+s_Am <- strength(america_edges)
+s_Eu <- strength(europe_edges)
+s_As <- strength(asia_edges)
+
+par(mfrow = c(2, 3))
+
+
+hist(s_Af, breaks = 15, xlab = "Strength", main = "Strength of Africa", col = hcl.colors(length(s_Af), rev = TRUE, palette = 'Blues'), border = "black")
+hist(s_Oc, breaks = 15, xlab = "Strength", main = "Strength of Oceania", col = hcl.colors(length(s_Oc), rev = TRUE, palette = 'Blues'), border = "black")
+hist(s_Am, breaks = 15, xlab = "Strength", main = "Strength of Americas", col = hcl.colors(length(s_Am), rev = TRUE, palette = 'Blues'), border = "black")
+hist(s_Eu, breaks = 15, xlab = "Strength", main = "Strength of Europe", col = hcl.colors(length(s_Eu), rev = TRUE, palette = 'Blues'), border = "black")
+hist(s_As, breaks = 15, xlab = "Strength", main = "Strength of Asia", col = hcl.colors(length(s_As), rev = TRUE, palette = 'Blues'), border = "black")
+
+```
+
+
+### PageRank of subgraph
+
+```{r}
+p_Af <- degree(africa_edges)
+p_Oc <- degree(oceania_edges)
+p_Am <- degree(america_edges)
+p_Eu <- degree(europe_edges)
+p_As <- degree(asia_edges)
+
+par(mfrow = c(2, 3))
+
+
+hist(p_Af, breaks = 15, xlab = "PageRank", main = "PageRank of Africa", col = hcl.colors(length(d_Af), rev = TRUE, palette = 'Blues'), border = "black")
+hist(p_Oc, breaks = 15, xlab = "PageRank", main = "PageRank of Oceania", col = hcl.colors(length(d_Oc), rev = TRUE, palette = 'Blues'), border = "black")
+hist(p_Am, breaks = 15, xlab = "PageRank", main = "PageRank of Americas", col = hcl.colors(length(d_Am), rev = TRUE, palette = 'Blues'), border = "black")
+hist(p_Eu, breaks = 15, xlab = "PageRank", main = "PageRank of Europe", col = hcl.colors(length(d_Eu), rev = TRUE, palette = 'Blues'), border = "black")
+hist(p_As, breaks = 15, xlab = "PageRank", main = "PageRank of Asia", col = hcl.colors(length(d_As), rev = TRUE, palette = 'Blues'), border = "black")
+```
+
+
+
+#### Betweenness of subgraph
+
+```{r}
+b_Af <- betweenness(africa_edges)
+b_Am <- betweenness(america_edges)
+b_As <- betweenness(asia_edges)
+b_Eu <- betweenness(europe_edges)
+b_Oc <- betweenness(oceania_edges)
+
+
+par(mfrow = c(2, 3))
+
+
+hist(b_Af, breaks = 15, xlab = "Betweenness", main = "Betweenness of Africa", col = hcl.colors(length(b_Af), rev = TRUE, palette = 'Blues'), border = "black")
+hist(b_Oc, breaks = 15, xlab = "Betweenness", main = "Betweenness of Oceania", col = hcl.colors(length(b_Oc), rev = TRUE, palette = 'Blues'), border = "black")
+hist(b_Am, breaks = 15, xlab = "Betweenness", main = "Betweenness of Americas", col = hcl.colors(length(b_Am), rev = TRUE, palette = 'Blues'), border = "black")
+hist(b_Eu, breaks = 15, xlab = "Betweenness", main = "Betweenness of Europe", col = hcl.colors(length(b_Eu), rev = TRUE, palette = 'Blues'), border = "black")
+hist(b_As, breaks = 15, xlab = "Betweenness", main = "Betweenness of Asia", col = hcl.colors(length(b_As), rev = TRUE, palette = 'Blues'), border = "black")
+
+```
+
+#### Degree and Strength of subgraph
+
+```{r}
+par(mfrow = c(2, 3))
+
+plot(d_Af, s_Af, xlab = "Degree", ylab = "Strength", main = "Africa", col = "blue")
+plot(d_Oc, s_Oc, xlab = "Degree", ylab = "Strength", main = "Oceania", col = "blue")
+plot(d_Am, s_Am, xlab = "Degree", ylab = "Strength", main = "Americas", col = "blue")
+plot(d_Eu, s_Eu, xlab = "Degree", ylab = "Strength", main = "Europe", col = "blue")
+plot(d_As, s_As, xlab = "Degree", ylab = "Strength", main = "Asia", col = "blue")
+```
+
+In all continents, the points have a positive strong linear relationship between degree and strength, as we could expect.
+
+# Best important city for each continent
+
+## Betweenness
+
+```{r}
+b_Af_1 <- sort(b_Af, decreasing = TRUE)[1]
+b_Eu_1 <- sort(b_Eu, decreasing = TRUE)[1]
+b_Am_1 <- sort(b_Am, decreasing = TRUE)[1]
+b_As_1 <- sort(b_As, decreasing = TRUE)[1]
+b_Oc_1 <- sort(b_Oc, decreasing = TRUE)[1]
+```
+
+```{r, warning=FALSE}
+cat("BETWEENNESS\n\n")
+cat("Continent: Africa\n")
+cat("Important city:", names(b_Af_1), "\n\n")
+
+cat("Continent: Europe\n")
+cat("Important city:", names(b_Eu_1), "\n\n")
+
+cat("Continent: Americas\n")
+cat("Important city:", names(b_Am_1), "\n\n")
+
+cat("Continent: Asia\n")
+cat("Important city:", names(b_As_1), "\n\n")
+
+cat("Continent: Oceania\n")
+cat("Important city:", names(b_Oc_1), "\n\n")
+```
+
+These cities play a fundamental role as continental transport hubs, each significantly contributing to facilitating the transport within their respective continents. Each of these cities occupies a strategic position within its continent, lying along the shortest path between two other nodal points, making them essential for the efficient transit.
+
+For example, **Nairobi**, in Africa, emerges as a vital transit point thanks to its high betweenness. This characteristic makes it a crucial stopover for travelers moving between different regions of the continent, facilitating connectivity within Africa.
+
+## Strength
+```{r}
+s_Af_1 <- sort(s_Af, decreasing = TRUE)[1]
+s_Eu_1 <- sort(s_Eu, decreasing = TRUE)[1]
+s_Am_1 <- sort(s_Am, decreasing = TRUE)[1]
+s_As_1 <- sort(s_As, decreasing = TRUE)[1]
+s_Oc_1 <- sort(s_Oc, decreasing = TRUE)[1]
+```
+
+```{r, warning=FALSE}
+cat("STRENGTH\n\n")
+cat("Continent: Africa\n")
+cat("Important city:", names(s_Af_1), "\n\n")
+
+cat("Continent: Europe\n")
+cat("Important city:", names(s_Eu_1), "\n\n")
+
+cat("Continent: Americas\n")
+cat("Important city:", names(s_Am_1), "\n\n")
+
+cat("Continent: Asia\n")
+cat("Important city:", names(s_As_1), "\n\n")
+
+cat("Continent: Oceania\n")
+cat("Important city:", names(s_Oc_1), "\n\n")
+```
+
+
+## Degree
+
+```{r}
+d_Af_1 <- sort(d_Af, decreasing = TRUE)[1]
+d_Eu_1 <- sort(d_Eu, decreasing = TRUE)[1]
+d_Am_1 <- sort(d_Am, decreasing = TRUE)[1]
+d_As_1 <- sort(d_As, decreasing = TRUE)[1]
+d_Oc_1 <- sort(d_Oc, decreasing = TRUE)[1]
+```
+
+```{r, warning=FALSE}
+cat("DEGREE\n\n")
+cat("Continent: Africa\n")
+cat("Important city:", names(d_Af_1), "\n\n")
+
+cat("Continent: Europe\n")
+cat("Important city:", names(d_Eu_1), "\n\n")
+
+cat("Continent: Americas\n")
+cat("Important city:", names(d_Am_1), "\n\n")
+
+cat("Continent: Asia\n")
+cat("Important city:", names(d_As_1), "\n\n")
+
+cat("Continent: Oceania\n")
+cat("Important city:", names(d_Oc_1), "\n\n")
+```
+
+
+## Pagerank
+```{r}
+p_Af_1 <- sort(p_Af, decreasing = TRUE)[1]
+p_Eu_1 <- sort(p_Eu, decreasing = TRUE)[1]
+p_Am_1 <- sort(p_Am, decreasing = TRUE)[1]
+p_As_1 <- sort(p_As, decreasing = TRUE)[1]
+p_Oc_1 <- sort(p_Oc, decreasing = TRUE)[1]
+```
+
+```{r, warning=FALSE}
+cat("PAGERANK\n\n")
+cat("Continent: Africa\n")
+cat("Important city:", names(p_Af_1), "\n\n")
+
+cat("Continent: Europe\n")
+cat("Important city:", names(p_Eu_1), "\n\n")
+
+cat("Continent: Americas\n")
+cat("Important city:", names(p_Am_1), "\n\n")
+
+cat("Continent: Asia\n")
+cat("Important city:", names(p_As_1), "\n\n")
+
+cat("Continent: Oceania\n")
+cat("Important city:", names(p_Oc_1), "\n\n")
+
+```
+
+
+# Network Sampling
+
+Network Sampling is a crucial technique in network analysis aimed at understanding large-scale network structures by examining representative subsets.
+
+In this context, let $G = (V,E)$ represent our network data, where $V$ denotes the set of vertices (nodes) and $E$ represents the set of edges (connections).
+Through network sampling, we aim to create a sampled network graph $G^* = (V^*,E^*)$ derived from the original network $G$.
+
+This sampled graph provides us with a subset of vertices and edges that are representative of the larger network, enabling us to perform analyses and draw insights efficiently.
+
+```{r}
+n <- 1010
+gs = induced_subgraph(g_w, sample(V(g_w), n))
+
+par(mfrow = c(1, 2))
+
+# plot the degree distribution for g and gs, and compare them
+dd = degree_dist(g_w)
+(m0 <- glm(fd ~ log(d), family = poisson, data = dd))
+with (dd, plot(log(d), log(fd), main = "Degree distribution of the original graph G", cex.main = 0.8 ))
+abline(a=m0$coef[1],b=m0$coef[2], col='red', lwd=1)
+
+# sampled subgraph
+ds = degree_dist(gs)
+(ms <- glm(fd ~ log(d), family = poisson, data = ds))
+with (ds, plot(log(d), log(fd), main = "Degree distribution of the induced subgraph", cex.main = 0.8))
+abline(a=ms$coef[1],b=ms$coef[2], col='blue', lwd=1)
+```
+
+Let's estimate the average degree of our original graph *g*.
+
+```{r}
+g <- g_w
+ng <- vcount(g) # calculate the number of vertices of the graph
+mean(degree(g))
+```
+
+Now, let's consider two sampling schemes: in each, we sample *n* vertices $V^* \subseteq V$ using Simple Random Sampling (SRS).
+
+*g_star1* and *g_star2* create subgraphs using two different sampling methods:
+
+-   **g_star1**: utilizes snowball sampling, where all edges incident to the selected vertices are sampled.
+-   **g_star2**: employs induced subgraph sampling, sampling only the edges among the selected vertices.
+
+```{r}
+set.seed(123)
+n <- floor(ng / 5) 
+v_star <- sample.int(ng, n) 
+
+g_star1 <- subgraph.edges(g, E(g)[.inc(v_star)], delete.vertices = FALSE)
+
+g_star2 <- induced_subgraph(g, v_star)
+```
+
+For each sampling design, we estimate the average degree:
+
+```{r}
+mean(degree(g_star1)[v_star])
+```
+
+When we sample all edges incident to each vertex $i \in V^*$, we obtain an average degree of $19.92$.
+
+```{r}
+mean(degree(g_star2))
+```
+
+When we sample all edges ${i,j}$ such that $i,j \in V^*$ the subgraph induced from $V^*$, we obtain an average degree of $3.85$.
+
+What happens if we repeat this process multiple times?
+
+```{r}
+set.seed(123)
+nmc <-  400
+est_mc <- map_df(1:nmc, function (mc) {
+  v_star <- sample(V(g), n)
+  data.frame(mc = mc, method = c("snowball", "induced"),
+    estimate = c(mean(degree(g)[v_star]), mean(degree(induced_subgraph(g, v_star)))))
+})
+ggplot(est_mc, aes(x = estimate, fill = method)) +
+    geom_histogram(bins = 100) + geom_vline(xintercept = mean(degree(g)))
+ 
+```
+
+The induced subgraph method consistently underestimates the average degree of the original graph. The snowball sampling method appears to provide a more accurate estimate of the average degree. Specifically, the snowball curve exhibits an average degree close to 20, while the induced curve is lower than 5.
+
+
+**Network sampling** analysis highlights that *snowball sampling* is particularly effective in providing accurate estimates of the average degrees and representing network connectivity. This method balances computational efficiency and accuracy, making it a preferable choice for analyzing complex and large-scale networks. *Induced subgraph sampling*, although less complex, is less representative of the global characteristics of the airline network and can lead to significant underestimations, as observed in our case.
+
+
+# Conclusions 
+
+
+Let's make some observations about the most important airports.
+
+
+Firstly, according to the measures as strength, degree and pagerank:
+
+
+- **London**, with 621 connections, stands out as a key node in the airline network. Its high degree indicates that it is a highly connected airport, its high strength shows that these connections are heavily trafficked and its high pagerank suggests that it is a crucial node linked to other important airports. This triple primacy underscores London's strategic importance in facilitating the global movement of passengers and goods, cementing its position as one of the most vital air hubs in the world.
+Furthermore, also emerges as a significant airport when considering strength and degree centrality within Europe, focusing on internal flights within the continent.
+
+
+While, by considering the betweenness measure:
+
+- **Anchorage** turns out to be the best bridge along the shortest paths all over the world, an aspect that can be justified by its strategic geographical position. Located in the northwest of America, Anchorage is at a relatively short distance from both Asia and Europe compared to other US airports.
+
+Anchorage is also the airport with the highest betweenness centrality *within the Americas*. This is because it serves as a significant hub for managing connections between various destinations in the north and south of the continent. For example, flights from Alaska to other parts of the United States or Canada often stop in Anchorage.
+
+
+- **Frankfurt** emerges as Europe's most important airport, if we consider the all *international flights*. 
+However, delving into the details of flights and airports *within the European continent*, **Moscow** boasts the highest betweenness centrality. This is due to Russia's vast expanse, hosting over 200 airports. Moscow's relatively closer proximity to the rest of Europe positions it as a pivotal node for the shortest paths between Russia and the rest of Europe. Consequently, many flights connecting various parts of Europe transit through Moscow, elevating its significance in the European airport network.
+
+
+In conclusion, the analyses based on measures such as degree, strength, and pagerank confirm that the results obtained globally are also reflected at the continental level. However, for the betweenness measure, the results show significant differences that can be explained by the fact that cities serving as crucial hubs for shortest paths globally might not hold the same importance within the continent. This is because, at the continental point of view, we consider only the airports and flights within the continent. Therefore, airports that are significant on a global scale, often crucial for international flights, may not have the same importance within the continent.
+
