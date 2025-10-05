@@ -1,6 +1,5 @@
 ---
 title: "Time series modeling and forecasting of gold price"
-author: "Ilaria Ferrero, Fabiana Pagliuca, Chiara Sangalli"
 date: "2024-02-13"
 output:
   pdf_document:
@@ -332,3 +331,4 @@ legend("bottomright", legend = c("Forecasts", "Past values"), col = c("deepskybl
 The model that fits better the monthly gold prices is a seasonal **ARIMA(0,1,1)(2,1,1)[12]**: we have reached this result by examining the ACF and PACF plots of our differenced series and comparing various models with different parameter sets.
 
 The model we fitted takes into account both the trend and seasonality in the time series data; in order to respect the normality and independence assumptions we transformed our series by applying the logarithmic transformation and we were able to predict future gold price values.
+
